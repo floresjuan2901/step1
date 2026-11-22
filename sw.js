@@ -1,5 +1,5 @@
-const CACHE="step1-v1.4.0";
-const SHELL=["./", "index.html", "video-links.js", "manifest.webmanifest", "firebase-config.js", "lib/pdf.min.js", "lib/pdf.worker.min.js", "lib/firebase-app-compat.js", "lib/firebase-auth-compat.js", "lib/firebase-firestore-compat.js", "lib/firebase-storage-compat.js", "icons/icon-192.png", "icons/icon-512.png", "icons/apple-touch-icon.png"];
+const CACHE="step1-v1.5.0";
+const SHELL=["./", "index.html", "video-links.js", "sketchy-videos.js", "manifest.webmanifest", "firebase-config.js", "lib/pdf.min.js", "lib/pdf.worker.min.js", "lib/firebase-app-compat.js", "lib/firebase-auth-compat.js", "lib/firebase-firestore-compat.js", "lib/firebase-storage-compat.js", "icons/icon-192.png", "icons/icon-512.png", "icons/apple-touch-icon.png"];
 self.addEventListener("install",e=>{ e.waitUntil(caches.open(CACHE).then(c=>c.addAll(SHELL))); });
 self.addEventListener("activate",e=>{ e.waitUntil(caches.keys().then(ks=>Promise.all(ks.filter(k=>k!==CACHE&&k.startsWith("step1-")).map(k=>caches.delete(k)))).then(()=>self.clients.claim())); });
 self.addEventListener("message",e=>{ if(e.data==="skip") self.skipWaiting(); });
