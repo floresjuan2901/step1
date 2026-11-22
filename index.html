@@ -379,7 +379,7 @@ body.fa-full .fa-resize{display:none}
       <button type="button" class="tb" id="video-import">Importar enlaces privados</button>
       <input id="video-import-file" type="file" accept="application/json,.json" hidden>
     </div>
-    <div class="sub">Versión 1.4.0 · Funciona sin internet: lo que marques se guarda en el dispositivo y se sincroniza al volver la conexión.</div>
+    <div class="sub">Versión 1.5.0 · Funciona sin internet: lo que marques se guarda en el dispositivo y se sincroniza al volver la conexión.</div>
   </section>
 </div>
 
@@ -1454,7 +1454,7 @@ $("logout").onclick=async()=>{
 
 // ----- backup export / import -----
 $("exp-btn").onclick=()=>{
-  const data={app:"step1-tracker", version:1, exported:new Date().toISOString(), progress:state, videos:videoCatalog, assess, qlog:qlog.map(({_id,...r})=>r), glossary:gloss.map(({_id,...r})=>r), highlights:hls.map(({_id,...r})=>r)};
+  const data={app:"step1-tracker", version:1, exported:new Date().toISOString(), progress:state, videos:videoCatalog, sketchyVideos:window.SketchyVideos?.exportCatalog()||{}, assess, qlog:qlog.map(({_id,...r})=>r), glossary:gloss.map(({_id,...r})=>r), highlights:hls.map(({_id,...r})=>r)};
   const blob=new Blob([JSON.stringify(data)],{type:"application/json"}); const a=document.createElement("a");
   a.href=URL.createObjectURL(blob); a.download="step1-respaldo-"+new Date().toISOString().slice(0,10)+".json"; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),5000);
 };
@@ -1464,6 +1464,7 @@ $("imp-file").onchange=async e=>{
   try{
     const d=JSON.parse(await f.text()); let n=0;
     if(d.videos!=null){await storeVideoCatalog(d.videos);n+=Object.keys(d.videos).length;}
+    if(d.sketchyVideos!=null){await window.SketchyVideos.importCatalog(d.sketchyVideos);n+=Object.keys(d.sketchyVideos).length;}
     const P=d.progress||{}; for (const [id,v] of Object.entries(P)){ if(!BYID[id]) continue; state[id]={...v}; if(mode==="db") db.collection("progress").doc(id).set({v:!!v.v,f:!!v.f,a:!!v.a,q:!!v.q,pct:v.pct??null,note:v.note||"",video:v.video==null?null:DriveVideo.driveId(v.video),updated:v.updated||new Date().toISOString()}); n++; }
     const A=d.assess||{}; for (const [id,v] of Object.entries(A)){ assess[id]={...v}; if(mode==="db") db.collection("assess").doc(id).set({done:!!v.done,date:v.date||"",pct:v.pct??null,updated:v.updated||new Date().toISOString()}); n++; }
     const seenQ=new Set(qlog.map(q=>q.created)); for (const q of (d.qlog||[])){ if(seenQ.has(q.created)) continue; if(mode==="db") db.collection("qlog").add(q); else qlog.push({...q,_id:"l"+Math.random()}); n++; }
@@ -1559,5 +1560,6 @@ if ("serviceWorker" in navigator){
   navigator.serviceWorker.addEventListener("controllerchange",()=>{ if(reloaded) return; reloaded=true; location.reload(); });
 }
 </script>
+<script src="sketchy-videos.js"></script>
 </body>
 </html>
