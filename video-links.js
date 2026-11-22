@@ -15,14 +15,14 @@
     return "";
   }
   function urls(value){const id=driveId(value);return id?{id,view:"https://drive.google.com/file/d/"+id+"/view",preview:"https://drive.google.com/file/d/"+id+"/preview"}:null;}
-  function catalog(raw,knownIds){
+  function catalog(raw,knownIds,maxParts=12){
     if(!raw || typeof raw!=="object" || Array.isArray(raw))throw Error("Catálogo inválido");
     const allowed=new Set(knownIds),out=Object.create(null);
     if(Object.keys(raw).length>allowed.size)throw Error("Demasiados temas en el catálogo");
     for(const [topic,value] of Object.entries(raw)){
       if(!allowed.has(topic))throw Error("El catálogo contiene un tema desconocido");
       const parts=Array.isArray(value)?value:[value];
-      if(!parts.length || parts.length>12)throw Error("Cantidad de partes inválida");
+      if(!parts.length || parts.length>maxParts)throw Error("Cantidad de partes inválida");
       out[topic]=parts.map(v=>{
         const id=driveId(typeof v==="string"?v:v&&v.id);
         if(!id)throw Error("El catálogo contiene un enlace de Drive inválido");
