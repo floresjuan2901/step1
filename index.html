@@ -379,7 +379,7 @@ body.fa-full .fa-resize{display:none}
       <button type="button" class="tb" id="video-import">Importar enlaces privados</button>
       <input id="video-import-file" type="file" accept="application/json,.json" hidden>
     </div>
-    <div class="sub">Versión 1.5.1 · Funciona sin internet: lo que marques se guarda en el dispositivo y se sincroniza al volver la conexión.</div>
+    <div class="sub">Versión 1.5.2 · Funciona sin internet: lo que marques se guarda en el dispositivo y se sincroniza al volver la conexión.</div>
   </section>
 </div>
 
@@ -975,12 +975,13 @@ async function loadPdf(blob, remember){
     else { trace("leyendo el archivo PDF ("+Math.round((blob.size||0)/1e6)+" MB)"); bytes = new Uint8Array(await blob.arrayBuffer()); }
     if (remember){ trace("guardando el PDF en el navegador"); const ok = await idbPut(blob); if(!ok) faStatus("Abriendo… (este navegador no permite guardarlo; tendrás que elegirlo cada vez)"); }
     trace("abriendo el PDF en el visor"); FA.doc = await pdfjsLib.getDocument({data:bytes, isOffscreenCanvasSupported:false, maxImageSize:16777216, disableFontFace:false}).promise;
-    const p1 = await FA.doc.getPage(1); const vp = p1.getViewport({scale:1}); FA.pw=vp.width; FA.ph=vp.height;
+    const p1 = await FA.doc.getPage(1); const vp1 = p1.getViewport({scale:1}); FA.oldPw=vp1.width; FA.oldPh=vp1.height;
+    const pm = await FA.doc.getPage(Math.ceil(FA.doc.numPages/2)); const vp = pm.getViewport({scale:1}); FA.pw=vp.width; FA.ph=vp.height;
     faEmpty.hidden=true;
     ["fa-idx","fa-prev","fa-next","fa-pg","fa-zo","fa-zi"].forEach(id=>$(id).disabled=false);
     $("fa-forget").hidden=false;
     const lastSaved = lsGet("fa-last", null);
-    buildPages(); layout(true); drawAllHl();
+    buildPages(); layout(true); migrateHl();
     if (COARSE && !lsGet("fa-hint-seen",false)){ $("fa-hint").hidden=false; setTimeout(()=>{ $("fa-hint").hidden=true; },6000); }
     const target = FA.pending!=null ? FA.pending : lastSaved;
     FA.pending=null;
@@ -1034,9 +1035,11 @@ async function renderPageInner(n){
   try{
     const page = await FA.doc.getPage(n); FA.pages.set(n,page);
     if (scale!==FA.scale || Math.abs(n-FA.cur)>2) return;
+    const vp1 = page.getViewport({scale:1});
+    const fit = Math.min(FA.pw/vp1.width, FA.ph/vp1.height), ps = scale*fit;
     let dpr = Math.min(window.devicePixelRatio||1, 3);
-    const px = FA.pw*FA.ph*scale*scale*dpr*dpr; if (px>MAX_PX) dpr = dpr*Math.sqrt(MAX_PX/px);
-    const vp = page.getViewport({scale:scale*dpr});
+    const px = vp1.width*vp1.height*ps*ps*dpr*dpr; if (px>MAX_PX) dpr = dpr*Math.sqrt(MAX_PX/px);
+    const vp = page.getViewport({scale:ps*dpr});
     const c = document.createElement("canvas"); c.width=Math.floor(vp.width); c.height=Math.floor(vp.height);
     const task = page.render({canvasContext:c.getContext("2d"), viewport:vp});
     FA.tasks.set(n, task);
@@ -1045,14 +1048,16 @@ async function renderPageInner(n){
     if (scale!==FA.scale) return;
     if (FA.rendered.has(n) || Math.abs(n-FA.cur)>2){ c.width=0; c.height=0; return; }
     const wrap = document.createElement("div"); wrap.className="pgc"; wrap.appendChild(c);
+    const fw=vp1.width*fit/FA.pw, fh=vp1.height*fit/FA.ph;
+    wrap.style.cssText=`left:${(1-fw)/2*100}%;top:${(1-fh)/2*100}%;width:${fw*100}%;height:${fh*100}%;right:auto;bottom:auto`;
     holder.insertBefore(wrap, holder.firstChild); FA.rendered.set(n,wrap);
     try{
       const tc = await page.getTextContent();
       if (scale!==FA.scale || !wrap.isConnected) return;
       const tl = document.createElement("div"); tl.className="textLayer"; tl.dataset.n=n;
-      tl.style.setProperty("--scale-factor", scale);
+      tl.style.setProperty("--scale-factor", ps);
       wrap.appendChild(tl);
-      await pdfjsLib.renderTextLayer({textContentSource:tc, container:tl, viewport:page.getViewport({scale}), textDivs:[]}).promise;
+      await pdfjsLib.renderTextLayer({textContentSource:tc, container:tl, viewport:page.getViewport({scale:ps}), textDivs:[]}).promise;
       markHits(tl);
     }catch(e){}
     evict();
@@ -1379,10 +1384,29 @@ function addHighlight(color){
     rs.sort((a,b)=>a.y-b.y||a.x-b.x); const m=[];
     rs.forEach(q=>{ const l=m[m.length-1]; if(l && Math.abs(l.y-q.y)<0.004 && q.x<=l.x+l.w+0.01){ const right=Math.max(l.x+l.w,q.x+q.w); l.h=Math.max(l.h,q.h); l.w=+(right-l.x).toFixed(4); } else m.push({...q}); });
     const pr=+n-FA.offset;
-    const entry={page:+n, printed:pr>0?pr:null, rects:m, text:txt, color, created:new Date().toISOString()};
+    const entry={page:+n, printed:pr>0?pr:null, rects:m, text:txt, color, geo:2, created:new Date().toISOString()};
     if (mode==="db") db.collection("highlights").add(entry); else { hls.push({...entry,_id:"h"+Date.now()+n}); saveLocal(); drawAllHl(); renderHlList(); }
   });
   window.getSelection().removeAllRanges(); hideTip();
+}
+const hlMigrating=new Set();
+async function migrateHl(){
+  if(!FA.doc||!FA.oldPw) return;
+  const todo=hls.filter(h=>!h.geo && !hlMigrating.has(h._id));
+  for (const h of todo){
+    hlMigrating.add(h._id);
+    try{
+      const vp=(await FA.doc.getPage(h.page)).getViewport({scale:1});
+      const fit=Math.min(FA.pw/vp.width, FA.ph/vp.height);
+      const offX=(FA.pw-vp.width*fit)/2, offY=(FA.ph-vp.height*fit)/2;
+      const r4=v=>+v.toFixed(4);
+      const rects=(h.rects||[]).map(r=>({x:r4((offX+r.x*FA.oldPw*fit)/FA.pw), y:r4((offY+r.y*FA.oldPh*fit)/FA.ph), w:r4(r.w*FA.oldPw*fit/FA.pw), h:r4(r.h*FA.oldPh*fit/FA.ph)}));
+      if (mode==="db") db.collection("highlights").doc(h._id).update({rects, geo:2});
+      else { h.rects=rects; h.geo=2; }
+    }catch(e){ hlMigrating.delete(h._id); }
+  }
+  if (mode!=="db" && todo.length) saveLocal();
+  drawAllHl();
 }
 function hlLayerFor(n){ const pg=faPages.children[n-1]; if(!pg) return null; let L=pg.querySelector(":scope > .hlLayer"); if(!L){ L=document.createElement("div"); L.className="hlLayer"; pg.appendChild(L); } return L; }
 function drawAllHl(){
@@ -1543,7 +1567,7 @@ async function cloudDownload(){
       const d=snap.docs.find(x=>x.id==="pdf"&&x.exists);cloudMeta=d?d.data():false;updateCloudBtn();
       const videos=snap.docs.find(x=>x.id==="videos"&&x.exists);receiveVideoCatalog(videos?videos.data():null);
     }, err=>{videoCatalog={};refreshRows();$("video-catalog-status").textContent="No se pudo cargar tu catálogo privado. Revisa tu sesión y las reglas de Firebase.";handleErr(err);});
-    db.collection("highlights").onSnapshot(snap=>{ hls=snap.docs.filter(d=>d.exists).map(d=>({...d.data(),_id:d.id})); drawAllHl(); renderHlList(); }, handleErr);
+    db.collection("highlights").onSnapshot(snap=>{ hls=snap.docs.filter(d=>d.exists).map(d=>({...d.data(),_id:d.id})); drawAllHl(); renderHlList(); migrateHl(); }, handleErr);
   });
 })();
 
