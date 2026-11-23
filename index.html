@@ -379,7 +379,7 @@ body.fa-full .fa-resize{display:none}
       <button type="button" class="tb" id="video-import">Importar enlaces privados</button>
       <input id="video-import-file" type="file" accept="application/json,.json" hidden>
     </div>
-    <div class="sub">Versión 1.5.2 · Funciona sin internet: lo que marques se guarda en el dispositivo y se sincroniza al volver la conexión.</div>
+    <div class="sub">Versión 1.5.3 · Funciona sin internet: lo que marques se guarda en el dispositivo y se sincroniza al volver la conexión.</div>
   </section>
 </div>
 
@@ -532,6 +532,9 @@ let curSys = "psy", curF = "all", query = "";
 let db = null, mode = "loading", pickedDefault = false;
 
 // ---------- completion rules ----------
+// pending video minutes: "Ver" until the video is marked; "Rápido" until the video is marked or the topic is done without it
+function verLeft(arr){ return arr.filter(d=>d.act==="ver" && d.min>0 && !(state[d.id]||{}).v).reduce((a,d)=>a+d.min,0); }
+function rapidoLeft(arr){ return arr.filter(d=>d.act==="rapido" && d.min>0 && !(state[d.id]||{}).v && !isDone(d)).reduce((a,d)=>a+d.min,0); }
 function needsVideo(it){ return it.min>0 && (it.act==="ver" || it.act==="sketchy"); }
 function hasVideo(it){ return it.min>0 || it.act==="sketchy"; }
 function isDone(it){
@@ -581,18 +584,18 @@ function sysOf(l){ return Array.isArray(l.systems) ? l.systems : (l.sys ? [l.sys
 function sysStats(id){
   const items = DATA.filter(d=>d.sys===id);
   const done = items.filter(isDone).length;
-  const vidLeft = items.filter(d=>d.act==="ver" && d.min>0 && !(state[d.id]||{}).v).reduce((a,d)=>a+d.min,0);
+  const vidLeft = verLeft(items), rapLeft = rapidoLeft(items);
   const logs = qlog.filter(l=>sysOf(l).includes(id));
   const nq = logs.reduce((a,l)=>a+Number(l.n||0),0);
   const avg = nq? Math.round(logs.reduce((a,l)=>a+Number(l.n)*Number(l.pct),0)/nq) : null;
-  return {items, done, pct: Math.round(100*done/items.length), vidLeft, nq, avg};
+  return {items, done, pct: Math.round(100*done/items.length), vidLeft, rapLeft, nq, avg};
 }
 function renderSummary(){
   const all = DATA.length, alld = DATA.filter(isDone).length;
-  const vidAll = DATA.filter(d=>d.act==="ver" && d.min>0 && !(state[d.id]||{}).v).reduce((a,d)=>a+d.min,0);
+  const vidAll = verLeft(DATA), rapAll = rapidoLeft(DATA);
   document.getElementById("overall").innerHTML = `<div class="top"><span><b>${alld}</b> de ${all} temas completos</span><span class="pct">${Math.round(100*alld/all)}%</span></div>
     <div class="bar"><i style="width:${100*alld/all}%"></i></div>
-    <div class="stats"><span>B&amp;B “Ver” pendiente en total: <b>${fmtMin(vidAll)}</b> (≈ ${fmtMin(Math.round(vidAll/1.5))} a 1.5x)</span></div>`;
+    <div class="stats"><span>B&amp;B pendiente en total: “Ver” <b>${fmtMin(vidAll)}</b> (≈ ${fmtMin(Math.round(vidAll/1.5))} a 1.5x) · “Rápido” <b>${fmtMin(rapAll)}</b> (≈ ${fmtMin(Math.round(rapAll/2))} a 2x)</span></div>`;
   const el = document.getElementById("summary");
   el.innerHTML = SYS.map((s,i)=>{
     const st = sysStats(s.id);
@@ -603,7 +606,7 @@ function renderSummary(){
   el.querySelectorAll(".tile").forEach(b=>b.onclick=()=>{curSys=b.dataset.sys; renderAll();});
   const s = SYS.find(x=>x.id===curSys), st = sysStats(curSys), idx = SYS.indexOf(s)+1;
   document.getElementById("detail").innerHTML = `<div class="dleft"><span class="num big">${idx}</span><div><h2>${s.name}</h2><div class="sub">${s.note}</div></div></div>
-    <div class="stats"><span><b>${st.done}</b>/${st.items.length} temas</span><span>B&amp;B “Ver” pendiente: <b>${fmtMin(st.vidLeft)}</b></span><span>Preguntas: <b>${st.nq}</b>${st.avg!=null?` · <b>${st.avg}%</b>`:""}</span></div>`;
+    <div class="stats"><span><b>${st.done}</b>/${st.items.length} temas</span><span>B&amp;B pendiente: “Ver” <b>${fmtMin(st.vidLeft)}</b>${st.rapLeft?` · “Rápido” <b>${fmtMin(st.rapLeft)}</b> (≈ ${fmtMin(Math.round(st.rapLeft/2))} a 2x)`:""}</span><span>Preguntas: <b>${st.nq}</b>${st.avg!=null?` · <b>${st.avg}%</b>`:""}</span></div>`;
 }
 
 function matches(it){
